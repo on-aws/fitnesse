@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Description
+
+Parameters:
+  ImageId:
+    Description: Amazon Linux 2
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-ebs
+
+  InstanceType:
+    Type: String
+    Default: t3a.small
+
+  TemplatesBucket:
+    Description: Specify build-cleaved-pipelines-templats S3 Bucket
+    Type: String
+    Default: on-aws-us-east-1-master
+
+Resources:
+  VPC:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplatesBucket}/vpc/template.yaml
+      Parameters:
+        Tag: fitnesse
+        Mode: NatInstance
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Effect: Allow
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref InstanceRole
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        IamInstanceProfile:
+          Arn: !GetAtt InstanceProfile.Arn
+        InstanceMarketOptions:
+          MarketType: spot
+          SpotOptions:
+            MaxPrice: 0.2
+            SpotInstanceType: persistent
+            InstanceInterruptionBehavior: stop
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 10
+              VolumeType: gp3
+        UserData:
+          Fn::Base64: |
+            #cloud-config
+            package_update: true
+            packages:
+              - java-11-amazon-corretto-headless
+            runcmd:
+            - mkdir /var/lib/fitnesse && cd /var/lib/fitnesse
+            - curl 'http://fitnesse.org/fitnesse-standalone.jar?responder=releaseDownload&release=20201213' --output fitnesse-standalone.jar
+            - curl 'https://raw.githubusercontent.com/konstantinvlasenko/PowerSlim/master/slim.ps1' --output slim.ps1
+            - curl 'https://raw.githubusercontent.com/konstantinvlasenko/PowerSlim/master/client.ps1' --output client.ps1
+            - java -jar fitnesse-standalone.jar -p 8080
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Group for Fitnesse instance
+      VpcId:  !GetAtt VPC.Outputs.VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: App
+          Value: fitnesse
+
+  Fitnesse:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      SubnetId:
+        Fn::Select:
+          - 0
+          - Fn::Split:
+            - ','
+            - !GetAtt VPC.Outputs.PrivateSubnets
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: 1
+      Tags:
+        - Key: Name
+          Value: FITNESSE

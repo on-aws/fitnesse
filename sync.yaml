@@ -1,0 +1,79 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Description
+
+Resources:
+  SyncRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+                - ssm.amazonaws.com
+            Effect: Allow
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+      Policies:
+        - PolicyName: PowerSlimSyncPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                  - ssm:ListCommands
+                  - ssm:ListCommandInvocations
+                Resource: '*'
+
+  Sync:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: PowerSlim-Sync
+      DocumentType: Automation
+      Content:
+        schemaVersion: "0.3"
+        description: Syncs Fitnesse Tests from S3 Bucket to Fitnesse Server
+        assumeRole: !GetAtt SyncRole.Arn
+        parameters:
+          S3Uri:
+            type: String
+          InstanceName:
+            type: String
+            default: FITNESSE
+          InstanceTagName:
+            type: String
+          InstanceTagValue:
+            type: String
+        mainSteps:
+          - name: UploadTests
+            action: aws:runCommand
+            onFailure: Abort
+            inputs:
+              DocumentName: AWS-RunShellScript
+              Targets:
+                - Key: tag:Name
+                  Values: [ "{{ InstanceName }}" ]
+                - Key: tag:{{ InstanceTagName }}
+                  Values: [ "{{ InstanceTagValue }}" ]
+              Parameters:
+                commands:
+                  - cd /var/lib/fitnesse
+                  - |
+                    aws s3 sync {{ S3Uri }} . \
+                    --exclude 'FitNesseRoot/files/*' \
+                    --exclude 'FitNesseRoot/FitNesse/*' \
+                    --exclude 'FitNesseRoot/FrontPage/*' \
+                    --exclude 'FitNesseRoot/PageFooter/*' \
+                    --exclude 'FitNesseRoot/PageHeader/*' \
+                    --exclude 'FitNesseRoot/Plugins/*' \
+                    --exclude 'FitNesseRoot/TemplateLibrary/*' \
+                    --exclude 'FitNesseRoot/RecentChanges.wiki' \
+                    --exclude '*.zip' \
+                    --exclude '*.ps1' \
+                    --exclude '*.jar' \
+                    --delete
