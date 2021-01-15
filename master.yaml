@@ -16,7 +16,40 @@ Parameters:
     Type: String
     Default: on-aws-us-east-1-master
 
+  HostedZoneId:
+    Description: AWS Route53 HostedZone Id
+    Type: String
+
+  AzureTenantId:
+    Type: String
+
+  ClientId:
+    Type: String
+
+  ClientSecret:
+    Type: String
+    NoEcho: true
+
 Resources:
+  # ####################
+  # CFN CUSTOM RESOURCES
+  # ####################
+  ROUTE53:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplatesBucket}/custom/route53/template.yaml
+      Parameters:
+        Tag: fitnesse
+
+  GetHostedZone:
+    Type: Custom::CustomResource
+    Properties:
+      ServiceToken: !GetAtt ROUTE53.Outputs.ServiceToken
+      Id: !Ref HostedZoneId
+
+  # ####################
+  # Resources
+  # ####################
   VPC:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -89,13 +122,10 @@ Resources:
       VpcId:  !GetAtt VPC.Outputs.VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 0.0.0.0/0
+          FromPort: 8080
+          ToPort: 8080
+          Description: Fitnesse
+          SourceSecurityGroupId: !Ref LoadbalancerSecurityGroup
       Tags:
         - Key: App
           Value: fitnesse
@@ -119,3 +149,114 @@ Resources:
       Tags:
         - Key: Name
           Value: FITNESSE
+        - Key: App
+          Value: fitnesse
+
+  ################################################################################
+  # AWS Load Balancer
+  ################################################################################
+  LoadbalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Group for Load balancer
+      VpcId: !GetAtt VPC.Outputs.VPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          Description: Fitnesse
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          Description: IdP token endpoint or the IdP user info endpoint
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: App
+          Value: fitnesse
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      Subnets:
+        Fn::Split:
+          - ','
+          - !GetAtt VPC.Outputs.PublicSubnets
+      SecurityGroups:
+        - !Ref LoadbalancerSecurityGroup
+      Tags:
+        - Key: App
+          Value: fitnesse
+
+  DnsRecordAPI:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name:
+        Fn::Sub:
+          - fitnesse.${Name}
+          -
+            Name: !GetAtt GetHostedZone.Name
+      Type: CNAME
+      TTL: 300
+      ResourceRecords:
+        - !GetAtt LoadBalancer.DNSName
+
+  SslCert:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName:
+        Fn::Sub:
+          - fitnesse.${Name}
+          -
+            Name: !GetAtt GetHostedZone.Name
+      ValidationMethod: DNS
+      Tags:
+        - Key: App
+          Value: fitnesse
+
+  HttpTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !GetAtt VPC.Outputs.VPC
+      Port: 8080
+      Protocol: HTTP
+      TargetType: instance
+      Targets:
+        - Id: !Ref Fitnesse
+          Port: 8080
+      Matcher:
+        HttpCode: 200
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+
+  LoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        -  CertificateArn: !Ref SslCert
+      DefaultActions:
+        - Type: authenticate-oidc
+          Order: 1
+          AuthenticateOidcConfig:
+            Issuer: !Sub https://login.microsoftonline.com/${AzureTenantId}/v2.0
+            AuthorizationEndpoint: !Sub https://login.microsoftonline.com/${AzureTenantId}/oauth2/v2.0/authorize
+            TokenEndpoint: !Sub https://login.microsoftonline.com/${AzureTenantId}/oauth2/v2.0/token
+            UserInfoEndpoint: https://graph.microsoft.com/oidc/userinfo
+            ClientId: !Ref ClientId
+            ClientSecret: !Ref ClientSecret
+            SessionTimeout: 86400
+        - Type: forward
+          Order: 2
+          TargetGroupArn: !Ref HttpTargetGroup
