@@ -67,7 +67,6 @@ Resources:
                     aws s3 sync {{ S3Uri }} . \
                     --exclude 'FitNesseRoot/files/*' \
                     --exclude 'FitNesseRoot/FitNesse/*' \
-                    --exclude 'FitNesseRoot/FrontPage/*' \
                     --exclude 'FitNesseRoot/PageFooter/*' \
                     --exclude 'FitNesseRoot/PageHeader/*' \
                     --exclude 'FitNesseRoot/Plugins/*' \
