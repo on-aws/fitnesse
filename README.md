@@ -1,2 +1,2 @@
 # fitnesse
-Fitnesse protected by Cognito Authentication
+Fitnesse protected by Azure AD
