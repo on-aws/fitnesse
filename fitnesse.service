@@ -1,0 +1,12 @@
+[Unit]
+Description=Fitnesse as a Service
+[Service]
+User=root
+WorkingDirectory=/usr/bin/fitnesse
+ExecStart=/bin/bash /usr/bin/fitnesse/fitnesse.sh
+SuccessExitStatus=143
+TimeoutStopSec=10
+Restart=on-failure
+RestartSec=5
+[Install]
+WantedBy=multi-user.target

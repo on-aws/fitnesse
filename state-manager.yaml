@@ -1,0 +1,35 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Description
+
+Parameters:
+  S3Uri:
+    Description: >
+      Specify location of S3 bucket with fitnesse-standalone.jar, PowerSlim files (slim.ps1 and client.ps1).
+      Also put fitnesse.service and fitnesse.sh files there as well
+    Type: String
+    AllowedPattern: ^[S|s]3:\/\/.+$
+
+Resources:
+  FitnesseAssociation:
+    Type: AWS::SSM::Association
+    Properties:
+      AssociationName: Fitnesse
+      Name: AWS-RunShellScript
+      Targets:
+        - Key: tag:Name
+          Values:
+            - FITNESSE
+      Parameters:
+        commands:
+          - curl https://packages.microsoft.com/config/rhel/7/prod.repo | sudo tee /etc/yum.repos.d/microsoft.repo
+          - yum install -y powershell
+          - yum install -y java-11-amazon-corretto-headless
+          - mkdir fitnesse && cd fitnesse
+          - !Sub aws s3 sync ${S3Uri} .
+          - tr -d '\r' < slim.ps1 > slim.ps1 && chmod u+x slim.ps1
+          - tr -d '\r' < client.ps1 > client.ps1 && chmod u+x client.ps1
+          - chmod u+x fitnesse.sh
+          - cp fitnesse.service /etc/systemd/system/fitnesse.service
+          - systemctl daemon-reload
+          - systemctl enable fitnesse.service
+          - systemctl start fitnesse.service

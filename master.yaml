@@ -99,21 +99,6 @@ Resources:
             Ebs:
               VolumeSize: 10
               VolumeType: gp3
-        UserData:
-          Fn::Base64: |
-            #cloud-config
-            package_update: true
-            packages:
-              - java-11-amazon-corretto-headless
-              - powershell
-            runcmd:
-            - mkdir /var/lib/fitnesse && cd /var/lib/fitnesse
-            - curl 'http://fitnesse.org/fitnesse-standalone.jar?responder=releaseDownload&release=20201213' --output fitnesse-standalone.jar
-            - curl 'https://raw.githubusercontent.com/konstantinvlasenko/PowerSlim/master/slim.ps1' --output slim.ps1
-            - curl 'https://raw.githubusercontent.com/konstantinvlasenko/PowerSlim/master/client.ps1' --output client.ps1
-            - tr -d '\r' < slim.ps1 > slim.ps1 && chmod +x slim.ps1
-            - tr -d '\r' < client.ps1 > client.ps1 && chmod +x client.ps1
-            - java -jar fitnesse-standalone.jar -p 8080
 
   SecurityGroup:
     Type: AWS::EC2::SecurityGroup
