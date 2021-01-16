@@ -24,12 +24,10 @@ Resources:
           - curl https://packages.microsoft.com/config/rhel/7/prod.repo | sudo tee /etc/yum.repos.d/microsoft.repo
           - yum install -y powershell
           - yum install -y java-11-amazon-corretto-headless
-          - mkdir fitnesse && cd fitnesse
-          - !Sub aws s3 sync ${S3Uri} .
-          - tr -d '\r' < slim.ps1 > slim.ps1 && chmod u+x slim.ps1
-          - tr -d '\r' < client.ps1 > client.ps1 && chmod u+x client.ps1
-          - chmod u+x fitnesse.sh
-          - cp fitnesse.service /etc/systemd/system/fitnesse.service
+          - sudo -u ec2-user mkdir /home/ec2-user/fitnesse
+          - !Sub sudo -u ec2-user aws s3 sync ${S3Uri} /home/ec2-user/fitnesse
+          - chmod u+x /home/ec2-user/fitnesse/fitnesse.sh
+          - cp /home/ec2-user/fitnesse/fitnesse.service /etc/systemd/system/fitnesse.service
           - systemctl daemon-reload
           - systemctl enable fitnesse.service
           - systemctl start fitnesse.service

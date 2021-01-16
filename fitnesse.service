@@ -1,9 +1,9 @@
 [Unit]
 Description=Fitnesse as a Service
 [Service]
-User=root
-WorkingDirectory=/usr/bin/fitnesse
-ExecStart=/bin/bash /usr/bin/fitnesse/fitnesse.sh
+User=ec2-user
+WorkingDirectory=/home/ec2-user/fitnesse
+ExecStart=/bin/bash /home/ec2-user/fitnesse/fitnesse.sh
 SuccessExitStatus=143
 TimeoutStopSec=10
 Restart=on-failure
