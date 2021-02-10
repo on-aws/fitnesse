@@ -30,6 +30,16 @@ Parameters:
     Type: String
     NoEcho: true
 
+  Route53AssumeRole:
+    Description: (Optional) In case Route53 belongs to another AWS Account
+    Type: String
+
+Conditions:
+  LocalHostedZone:
+    Fn::Equals:
+      - !Ref Route53AssumeRole
+      - ''
+
 Resources:
   # ####################
   # CFN CUSTOM RESOURCES
@@ -40,6 +50,7 @@ Resources:
       TemplateURL: !Sub https://s3.amazonaws.com/${TemplatesBucket}/custom/route53/template.yaml
       Parameters:
         Tag: fitnesse
+        Route53AssumeRole: !Ref Route53AssumeRole
 
   GetHostedZone:
     Type: Custom::CustomResource
@@ -180,6 +191,7 @@ Resources:
           Value: fitnesse
 
   DnsRecordAPI:
+    Condition: LocalHostedZone
     Type: AWS::Route53::RecordSet
     Properties:
       HostedZoneId: !Ref HostedZoneId
