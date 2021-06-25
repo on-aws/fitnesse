@@ -35,12 +35,26 @@ Parameters:
     Type: String
     NoEcho: true
 
-  App:
-    Type: String
+  AppsCount:
+    Description: Number of Fitnesse severs. Fitnesse server per app/project.
+    Default: 1
+    Type: Number
+    AllowedValues: [ 1, 2, 3 ]
+
+  Apps:
+    Type: CommaDelimitedList
     Default: fitnesse
 
   Owner:
     Type: String
+
+Conditions:
+  SecondFinesse:
+    Fn::Or:
+      - Fn::Equals: [!Ref AppsCount, 2]
+      - Fn::Equals: [!Ref AppsCount, 3]
+  ThirdFinesse:
+    Fn::Equals: [!Ref AppsCount, 3]
 
 Resources:
   # ####################
@@ -51,7 +65,7 @@ Resources:
     Properties:
       TemplateURL: !Sub https://s3.amazonaws.com/${TemplatesBucket}/custom/route53/template.yaml
       Parameters:
-        Tag: !Ref App
+        Tag: fitnesse
 
   GetHostedZone:
     Type: Custom::CustomResource
@@ -67,169 +81,9 @@ Resources:
     Properties:
       TemplateURL: !Sub https://s3.amazonaws.com/${TemplatesBucket}/vpc/template.yaml
       Parameters:
-        App: !Ref App
         Owner: !Ref Owner
         AvailabilityZonesCount: 2
 
-  InstanceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Action:
-              - sts:AssumeRole
-            Principal:
-              Service:
-                - ec2.amazonaws.com
-            Effect: Allow
-      Path: /
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-
-  InstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      Path: /
-      Roles:
-        - !Ref InstanceRole
-
-  UserDataHandle:
-    Type: AWS::CloudFormation::WaitConditionHandle
-
-  LaunchTemplate:
-    Type: AWS::EC2::LaunchTemplate
-    Properties:
-      TagSpecifications:
-        - ResourceType: launch-template
-          Tags:
-            - Key: Name
-              Value: FITNESSE
-            - Key: App
-              Value: !Ref App
-            - Key: Owner
-              Value: !Ref Owner
-      LaunchTemplateData:
-        IamInstanceProfile:
-          Arn: !GetAtt InstanceProfile.Arn
-        InstanceMarketOptions:
-          MarketType: spot
-          SpotOptions:
-            MaxPrice: 0.2
-            SpotInstanceType: persistent
-            InstanceInterruptionBehavior: stop
-        BlockDeviceMappings:
-          - DeviceName: /dev/sda1
-            Ebs:
-              VolumeSize: 10
-              VolumeType: gp3
-        TagSpecifications:
-          - ResourceType: instance
-            Tags:
-              - Key: Name
-                Value: FITNESSE
-              - Key: App
-                Value: !Ref App
-              - Key: Owner
-                Value: !Ref Owner
-          - ResourceType: volume
-            Tags:
-              - Key: Name
-                Value: FITNESSE
-              - Key: App
-                Value: !Ref App
-              - Key: Owner
-                Value: !Ref Owner
-          - ResourceType: spot-instances-request
-            Tags:
-              - Key: Name
-                Value: FITNESSE
-              - Key: App
-                Value: !Ref App
-              - Key: Owner
-                Value: !Ref Owner
-        UserData:
-          Fn::Base64:
-            Fn::Sub: |
-              #!/bin/bash
-              /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchTemplate --region ${AWS::Region}
-              /opt/aws/bin/cfn-signal '${UserDataHandle}'
-    Metadata:
-      AWS::CloudFormation::Init:
-        config:
-          packages:
-            rpm:
-              powershell: https://github.com/PowerShell/PowerShell/releases/download/v7.1.3/powershell-7.1.3-1.rhel.7.x86_64.rpm
-            yum:
-              java-11-amazon-corretto-headless: []
-          files:
-            /etc/systemd/system/fitnesse.service:
-              content: |
-                [Unit]
-                Description=Fitnesse as a Service
-                [Service]
-                User=ec2-user
-                WorkingDirectory=/home/ec2-user/fitnesse
-                ExecStart=/bin/java -jar fitnesse-standalone.jar -p 8080
-                SuccessExitStatus=143
-                TimeoutStopSec=10
-                Restart=on-failure
-                RestartSec=5
-                [Install]
-                WantedBy=multi-user.target
-          commands:
-            01_download_fitnesse:
-              command: !Sub |
-                sudo -u ec2-user aws s3 sync ${S3Uri} /home/ec2-user/fitnesse
-            02_start_fitnesse:
-              command: |
-                systemctl daemon-reload
-                systemctl enable fitnesse.service
-                systemctl start fitnesse.service
-
-  SecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Group for Fitnesse instance
-      VpcId:  !GetAtt VPC.Outputs.VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
-          Description: Fitnesse
-          SourceSecurityGroupId: !Ref LoadbalancerSecurityGroup
-      Tags:
-        - Key: App
-          Value: fitnesse
-
-  Fitnesse:
-    Type: AWS::EC2::Instance
-    Properties:
-      ImageId: !Ref ImageId
-      InstanceType: !Ref InstanceType
-      SubnetId:
-        Fn::Select:
-          - 0
-          - Fn::Split:
-            - ','
-            - !GetAtt VPC.Outputs.PrivateSubnets
-      SecurityGroupIds:
-        - !Ref SecurityGroup
-      LaunchTemplate:
-        LaunchTemplateId: !Ref LaunchTemplate
-        Version: !GetAtt LaunchTemplate.LatestVersionNumber
-
-  WaitUserData:
-    Type: AWS::CloudFormation::WaitCondition
-    DependsOn: Fitnesse
-    Properties:
-      Handle: !Ref UserDataHandle
-      Timeout: 600
-
-  ################################################################################
-  # AWS Load Balancer
-  ################################################################################
   LoadbalancerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -252,8 +106,23 @@ Resources:
           ToPort: 443
           CidrIp: 0.0.0.0/0
       Tags:
-        - Key: App
-          Value: fitnesse
+        - Key: Owner
+          Value: !Ref Owner
+
+  FitnesseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Group for Fitnesse instance
+      VpcId:  !GetAtt VPC.Outputs.VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          Description: Fitnesse
+          SourceSecurityGroupId: !Ref LoadbalancerSecurityGroup
+      Tags:
+        - Key: Owner
+          Value: !Ref Owner
 
   LoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
@@ -266,8 +135,8 @@ Resources:
       SecurityGroups:
         - !Ref LoadbalancerSecurityGroup
       Tags:
-        - Key: App
-          Value: fitnesse
+        - Key: Owner
+          Value: !Ref Owner
 
   DnsRecordAPI:
     Type: AWS::Route53::RecordSet
@@ -293,25 +162,8 @@ Resources:
             Name: !GetAtt GetHostedZone.Name
       ValidationMethod: DNS
       Tags:
-        - Key: App
-          Value: fitnesse
-
-  HttpTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      VpcId: !GetAtt VPC.Outputs.VPC
-      Port: 8080
-      Protocol: HTTP
-      TargetType: instance
-      Targets:
-        - Id: !Ref Fitnesse
-          Port: 8080
-      Matcher:
-        HttpCode: 200
-      HealthCheckPath: /
-      HealthCheckProtocol: HTTP
-      HealthCheckTimeoutSeconds: 5
-      HealthyThresholdCount: 2
+        - Key: Owner
+          Value: !Ref Owner
 
   LoadBalancerListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -335,3 +187,57 @@ Resources:
         - Type: forward
           Order: 2
           TargetGroupArn: !Ref HttpTargetGroup
+
+  # ####################
+  # Fitnesse farm
+  # ####################
+  Fitnesse1:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplatesBucket}/fitnesse/template.yaml
+      Parameters:
+        S3Uri: !Ref S3Uri
+        AzureTenantId: !Ref AzureTenantId
+        ClientId: !Ref ClientId
+        ClientSecret: !Ref ClientSecret
+        App: !Select [0, !Ref Apps]
+        Owner: !Ref Owner
+        ListenerArn: !Ref LoadBalancerListener
+        VPC: !GetAtt VPC.Outputs.VPC
+        PrivateSubnets: !GetAtt VPC.Outputs.PrivateSubnets
+        SecurityGroup: !Ref FitnesseSecurityGroup
+
+
+  Fitnesse2:
+    Type: AWS::CloudFormation::Stack
+    Condition: SecondFinesse
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplatesBucket}/fitnesse/template.yaml
+      Parameters:
+        S3Uri: !Ref S3Uri
+        AzureTenantId: !Ref AzureTenantId
+        ClientId: !Ref ClientId
+        ClientSecret: !Ref ClientSecret
+        App: !Select [1, !Ref Apps]
+        Owner: !Ref Owner
+        ListenerArn: !Ref LoadBalancerListener
+        VPC: !GetAtt VPC.Outputs.VPC
+        PrivateSubnets: !GetAtt VPC.Outputs.PrivateSubnets
+        SecurityGroup: !Ref FitnesseSecurityGroup
+
+  Fitnesse3:
+    Type: AWS::CloudFormation::Stack
+    Condition: ThirdFinesse
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplatesBucket}/fitnesse/template.yaml
+      Parameters:
+        S3Uri: !Ref S3Uri
+        AzureTenantId: !Ref AzureTenantId
+        ClientId: !Ref ClientId
+        ClientSecret: !Ref ClientSecret
+        App: !Select [2, !Ref Apps]
+        Owner: !Ref Owner
+        ListenerArn: !Ref LoadBalancerListener
+        VPC: !GetAtt VPC.Outputs.VPC
+        PrivateSubnets: !GetAtt VPC.Outputs.PrivateSubnets
+        SecurityGroup: !Ref FitnesseSecurityGroup
