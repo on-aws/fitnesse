@@ -2,15 +2,6 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: Description
 
 Parameters:
-  ImageId:
-    Description: Amazon Linux 2
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-ebs
-
-  InstanceType:
-    Type: String
-    Default: t3a.small
-
   TemplatesBucket:
     Description: Specify ON-AWS S3 Bucket
     Type: String
@@ -87,6 +78,7 @@ Resources:
     Properties:
       TemplateURL: !Sub https://s3.amazonaws.com/${TemplatesBucket}/vpc/template.yaml
       Parameters:
+        App: fitnesse
         Owner: !Ref Owner
         AvailabilityZonesCount: 2
 
@@ -150,7 +142,7 @@ Resources:
       HostedZoneId: !Ref HostedZoneId
       Name:
         Fn::Sub:
-          - fitnesse.${Name}
+          - fitnesse2.${Name}
           -
             Name: !GetAtt GetHostedZone.Name
       Type: CNAME
@@ -307,12 +299,12 @@ Resources:
           PathPatternConfig:
             Values:
               - !Select [0, !Ref Apps]
-      ListenerArn: !Ref ListenerArn
+      ListenerArn: !Ref LoadBalancerListener
       Priority: 1
 
   ListenerRule2:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    Condition: SeondFinesse
+    Condition: SecondFinesse
     Properties:
       Actions:
         - Type: authenticate-oidc
@@ -333,7 +325,7 @@ Resources:
           PathPatternConfig:
             Values:
               - !Select [1, !Ref Apps]
-      ListenerArn: !Ref ListenerArn
+      ListenerArn: !Ref LoadBalancerListener
       Priority: 2
 
   ListenerRule3:
@@ -359,5 +351,5 @@ Resources:
           PathPatternConfig:
             Values:
               - !Select [2, !Ref Apps]
-      ListenerArn: !Ref ListenerArn
+      ListenerArn: !Ref LoadBalancerListener
       Priority: 3

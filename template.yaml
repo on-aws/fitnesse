@@ -184,12 +184,7 @@ Resources:
     Properties:
       ImageId: !Ref ImageId
       InstanceType: !Ref InstanceType
-      SubnetId:
-        Fn::Select:
-          - 0
-          - Fn::Split:
-            - ','
-            - !Ref PrivateSubnets
+      SubnetId: !Select [0, !Ref PrivateSubnets]
       SecurityGroupIds:
         - !Ref SecurityGroup
       LaunchTemplate:
